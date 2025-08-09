@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>משימת רפאל: חידון הממציאים</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;700;900&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Heebo', sans-serif; background: linear-gradient(to right, #004e92, #000428); color: #e0e0e0; overflow: hidden; }
+    .font-orbitron { font-family: 'Orbitron', sans-serif; }
+    .tech-glow { text-shadow: 0 0 5px rgba(0,255,255,0.7), 0 0 10px rgba(0,255,255,0.5); }
+    .main-container { backdrop-filter: blur(10px); background: rgba(10,25,47,0.6); border:1px solid rgba(0,255,255,0.3); box-shadow:0 0 30px rgba(0,255,255,0.2); }
+    .btn-primary { background: rgba(0,191,255,0.8); border:1px solid #00ffff; box-shadow:0 0 10px rgba(0,255,255,0.5); transition:all .3s; }
+    .btn-primary:hover { background:#00ffff; color:#000428; transform:scale(1.05); box-shadow:0 0 20px rgba(0,255,255,0.8); }
+    .answer-option { background:rgba(23,58,94,0.7); border:1px solid rgba(0,255,255,0.4); transition:.2s; }
+    .answer-option:not(.disabled):hover { background:rgba(0,255,255,0.2); border-color:#00ffff; transform:translateX(-10px); }
+    .correct { background:rgba(15,255,131,0.8); border-color:#0fff83; color:#000; animation:pulse-correct .5s; }
+    .incorrect { background:rgba(255,59,48,0.8); border-color:#ff3b30; color:#fff; animation:shake-horizontal .5s; }
+    .disabled { pointer-events:none; opacity:.7; }
+    @keyframes shake-horizontal {0%,100%{transform:translateX(0)}10%,30%,50%,70%{transform:translateX(-10px)}20%,40%,60%,80%{transform:translateX(10px)}}
+    @keyframes pulse-correct {0%{transform:scale(1)}70%{transform:scale(1.05);box-shadow:0 0 10px 15px rgba(15,255,131,0)}100%{transform:scale(1)}}
+    .fade-in { animation:fadeIn .5s ease forwards; }
+    .fade-out { animation:fadeOut .5s ease forwards; }
+    @keyframes fadeIn {from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeOut {from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-20px)}}
+  </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+  <audio id="sound-correct" src="https://example.com/sounds/correct.mp3" preload="auto"></audio>
+  <audio id="sound-wrong" src="https://example.com/sounds/wrong.mp3" preload="auto"></audio>
+  <div id="game-container" class="main-container w-full max-w-3xl mx-auto rounded-2xl p-6 md:p-10 text-center">
+    <!-- Start Screen -->
+    <div id="start-screen" class="fade-in">
+      <h1 class="font-orbitron text-4xl md:text-6xl font-black tech-glow mb-4">משימת רפאל</h1>
+      <h2 class="text-2xl md:text-3xl mb-8">חידון הממציאים</h2>
+      <p class="text-lg mb-10 max-w-xl mx-auto">הוכיחו שיש לכם את מה שצריך כדי להצטרף לצוות הפיתוח של רפאל! ענו על השאלות וצברו נקודות.</p>
+      <button id="start-btn" class="btn-primary font-orbitron text-2xl font-bold py-3 px-12 rounded-lg">התחל</button>
+    </div>
+    <!-- Quiz Screen -->
+    <div id="quiz-screen" class="hidden">
+      <div id="hud" class="flex justify-between items-center mb-6 font-orbitron text-lg">
+        <span id="progress-text" class="tech-glow">שאלה 1 / 16</span>
+        <span id="timer-text" class="tech-glow">10</span>
+        <span id="score-text" class="tech-glow">ניקוד: 0</span>
+      </div>
+      <h2 id="question" class="text-2xl md:text-3xl font-bold mb-8 min-h-[100px]">טוען שאלה...</h2>
+      <div id="answer-options" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+    <!-- End Screen -->
+    <div id="end-screen" class="hidden">
+      <h1 class="font-orbitron text-4xl md:text-5xl font-black tech-glow mb-4">סיימתם!</h1>
+      <p id="final-score" class="text-6xl tech-glow mb-4">0</p>
+      <p id="end-message" class="text-lg mb-8"></p>
+      <button id="restart-btn" class="btn-primary font-orbitron text-2xl font-bold py-3 px-12 rounded-lg">שחק שוב</button>
+    </div>
+  </div>
+  <script>
+    const questions = [
+      { question: 'באיזו שנה קמה המעבדה הסודית שהפכה לרפאל?', answers: [
+          { text: '1967', correct: false },
+          { text: '1948', correct: true },
+          { text: '1973', correct: false },
+          { text: '1956', correct: false }
+        ]
+      },
+      // ... שאר השאלות לעדכון ...
+    ];
+    const SCORE_POINTS = 100;
+    let currentQuestionIndex = 0;
+    let score = 0;
+    let accepting = false;
+    let timerInterval, timerTimeout, timeLeft = 10;
+    const startBtn = document.getElementById('start-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const startScreen = document.getElementById('start-screen');
+    const quizScreen = document.getElementById('quiz-screen');
+    const endScreen = document.getElementById('end-screen');
+    const questionEl = document.getElementById('question');
+    const answerEl = document.getElementById('answer-options');
+    const progressText = document.getElementById('progress-text');
+    const timerText = document.getElementById('timer-text');
+    const scoreText = document.getElementById('score-text');
+    const finalScore = document.getElementById('final-score');
+    const endMessage = document.getElementById('end-message');
+    const soundCorrect = document.getElementById('sound-correct');
+    const soundWrong = document.getElementById('sound-wrong');
+
+    function startGame() {
+      startScreen.classList.add('fade-out');
+      setTimeout(() => {
+        startScreen.classList.add('hidden');
+        quizScreen.classList.remove('hidden');
+        quizScreen.classList.add('fade-in');
+        currentQuestionIndex = 0;
+        score = 0;
+        updateHud();
+        showQuestion();
+      }, 500);
+    }
+
+    function showQuestion() {
+      clearTimers();
+      timeLeft = 10;
+      updateTimer();
+      timerInterval = setInterval(() => { if (--timeLeft <= 0) handleTimeout(); else updateTimer(); }, 1000);
+      timerTimeout = setTimeout(handleTimeout, 10000);
+
+      const q = questions[currentQuestionIndex];
+      questionEl.textContent = q.question;
+      answerEl.innerHTML = '';
+      q.answers.forEach(a => {
+        const btn = document.createElement('button');
+        btn.textContent = a.text;
+        btn.className = 'answer-option w-full p-4 rounded-lg text-lg font-bold text-right';
+        btn.dataset.correct = a.correct;
+        btn.addEventListener('click', handleAnswer);
+        answerEl.appendChild(btn);
+      });
+      accepting = true;
+    }
+
+    function handleAnswer(e) {
+      if (!accepting) return;
+      accepting = false;
+      clearTimers();
+      const selected = e.target;
+      const correct = selected.dataset.correct === 'true';
+      if (correct) {
+        score += SCORE_POINTS;
+        selected.classList.add('correct');
+        soundCorrect.play();
+      } else {
+        selected.classList.add('incorrect');
+        soundWrong.play();
+        const correctBtn = answerEl.querySelector('[data-correct="true"]');
+        if (correctBtn) correctBtn.classList.add('correct');
+      }
+      Array.from(answerEl.children).forEach(b => b.classList.add('disabled'));
+      updateHud();
+      setTimeout(nextQuestion, 2000);
+    }
+
+    function handleTimeout() {
+      if (!accepting) return;
+      accepting = false;
+      clearTimers();
+      Array.from(answerEl.children).forEach(b => b.classList.add('disabled'));
+      setTimeout(nextQuestion, 0);
+    }
+
+    function clearTimers() {
+      clearInterval(timerInterval);
+      clearTimeout(timerTimeout);
+    }
+
+    function updateTimer() {
+      timerText.textContent = timeLeft;
+    }
+
+    function nextQuestion() {
+      currentQuestionIndex++;
+      if (currentQuestionIndex < questions.length) {
+        updateHud(); showQuestion();
+      } else {
+        endGame();
+      }
+    }
+
+    function updateHud() {
+      progressText.textContent = `שאלה ${currentQuestionIndex + 1} / ${questions.length}`;
+      scoreText.textContent = `ניקוד: ${score}`;
+    }
+
+    function endGame() {
+      clearTimers();
+      quizScreen.classList.add('fade-out');
+      setTimeout(() => {
+        quizScreen.classList.add('hidden');
+        endScreen.classList.remove('hidden');
+        endScreen.classList.add('fade-in');
+        finalScore.textContent = score;
+        const pct = (score / (questions.length * SCORE_POINTS)) * 100;
+        endMessage.textContent = pct === 100 ? 'תוצאה מושלמה!' : pct >= 80 ? 'מרשים!' : pct >= 50 ? 'עבודה טובה!' : 'נסה שוב';
+      }, 500);
+    }
+
+    function restart() {
+      clearTimers();
+      endScreen.classList.add('hidden');
+      quizScreen.classList.remove('hidden');
+      currentQuestionIndex = 0;
+      score = 0;
+      updateHud();
+      showQuestion();
+    }
+
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', restart);
+  </script>
+</body>
+</html>
