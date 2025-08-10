@@ -30,9 +30,11 @@
 </head>
 <body class="flex items-center justify-center min-h-screen p-4">
 
-  <!-- סאונד - החלף לנתיבים אמיתיים אם תרצה -->
-  <audio id="sound-correct" src="https://example.com/sounds/correct.mp3" preload="auto"></audio>
-  <audio id="sound-wrong"   src="https://example.com/sounds/wrong.mp3"   preload="auto"></audio>
+  <!-- סאונד - אפשר להשאיר או להחליף לנתיבים משלך. יש fallback בקוד JS -->
+  <audio id="sound-correct" crossorigin="anonymous" preload="auto"
+         src="https://assets.mixkit.co/sfx/preview/mixkit-success-bell-win-2876.mp3"></audio>
+  <audio id="sound-wrong" crossorigin="anonymous" preload="auto"
+         src="https://assets.mixkit.co/sfx/preview/mixkit-wrong-answer-fail-2875.mp3"></audio>
 
   <div id="game-container" class="main-container w-full max-w-3xl mx-auto rounded-2xl p-6 md:p-10 text-center">
     <!-- מסך פתיחה -->
@@ -42,7 +44,11 @@
       <p class="text-lg mb-10 max-w-xl mx-auto">
         הוכיחו שיש לכם את מה שצריך כדי להצטרף לצוות הפיתוח של רפאל! ענו על השאלות, צברו נקודות והפכו לגיבורי הטכנולוגיה הבאים.
       </p>
-      <button id="start-btn" class="btn-primary font-orbitron text-2xl font-bold py-3 px-12 rounded-lg">התחל משימה</button>
+      <div class="flex gap-3 justify-center mb-4">
+        <button id="start-btn" class="btn-primary font-orbitron text-2xl font-bold py-3 px-12 rounded-lg">התחל משימה</button>
+        <button id="test-sound-btn" class="btn-primary font-orbitron text-lg font-bold py-3 px-6 rounded-lg">בדיקת סאונד</button>
+      </div>
+      <p class="opacity-75 text-sm">אם אין סאונד, לחץ קודם על בדיקת סאונד כדי לאפשר השמעה.</p>
     </div>
 
     <!-- מסך חידון -->
@@ -72,6 +78,62 @@
   </div>
 
   <script>
+    // ---------- Web Audio fallback ואנלוק ----------
+    let audioCtx = null;
+    function ensureAudioUnlocked() {
+      try {
+        if (!audioCtx) {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          audioCtx = new Ctx();
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        // ביפ קצר כדי לפתוח הרשאה
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.connect(g).connect(audioCtx.destination);
+        o.frequency.value = 880;
+        g.gain.value = 0.0001;
+        o.start();
+        g.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.12);
+        o.stop(audioCtx.currentTime + 0.13);
+      } catch (e) {
+        console.warn('Audio unlock error:', e);
+      }
+    }
+
+    function beep(freq = 440, duration = 0.2) {
+      try {
+        ensureAudioUnlocked();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sine';
+        o.frequency.value = freq;
+        o.connect(g).connect(audioCtx.destination);
+        g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+        o.start();
+        o.stop(audioCtx.currentTime + duration + 0.02);
+      } catch (e) {
+        console.warn('WebAudio beep failed:', e);
+      }
+    }
+
+    async function safePlay(el, fallbackFreq) {
+      try {
+        // ודא טעינה בסיסית
+        if (el.readyState < 2) { el.load(); }
+        el.currentTime = 0;
+        el.volume = 1;
+        const p = el.play();
+        if (p && typeof p.then === 'function') await p;
+      } catch (err) {
+        console.warn('Audio file failed, using fallback beep. Reason:', err);
+        beep(fallbackFreq, 0.18);
+      }
+    }
+
     // ---------- נתוני השאלות ----------
     const questions = [
       { question: "באיזו שנה קמה המעבדה הסודית שהפכה לרפאל?", answers: [
@@ -146,6 +208,7 @@
 
     // ---------- מצביעים לאלמנטים ----------
     const startBtn = document.getElementById('start-btn');
+    const testSoundBtn = document.getElementById('test-sound-btn');
     const restartBtn = document.getElementById('restart-btn');
     const startScreen = document.getElementById('start-screen');
     const quizScreen = document.getElementById('quiz-screen');
@@ -180,6 +243,7 @@
 
     // ---------- התחלת משחק ----------
     function startGame() {
+      ensureAudioUnlocked(); // פותח הרשאת אודיו
       clearTimers();
       currentQuestionIndex = 0;
       score = 0;
@@ -223,7 +287,7 @@
     }
 
     // ---------- טיפול בבחירה ----------
-    function handleAnswer(e) {
+    async function handleAnswer(e) {
       if (!accepting) return;
       accepting = false;
       clearTimers();
@@ -234,10 +298,10 @@
       if (correct) {
         score += SCORE_POINTS;
         selected.classList.add('correct');
-        try { soundCorrect.play(); } catch {}
+        await safePlay(soundCorrect, 880);
       } else {
         selected.classList.add('incorrect');
-        try { soundWrong.play(); } catch {}
+        await safePlay(soundWrong, 220);
         const correctBtn = answerEl.querySelector('[data-correct="true"]');
         if (correctBtn) correctBtn.classList.add('correct');
       }
@@ -299,6 +363,7 @@
 
     // ---------- התחלה מחדש ----------
     function restart() {
+      ensureAudioUnlocked();
       clearTimers();
       currentQuestionIndex = 0;
       score = 0;
@@ -311,6 +376,13 @@
     // ---------- חיבורים ----------
     document.getElementById('start-btn').addEventListener('click', startGame);
     document.getElementById('restart-btn').addEventListener('click', restart);
+
+    // כפתור בדיקת סאונד
+    document.getElementById('test-sound-btn').addEventListener('click', async () => {
+      ensureAudioUnlocked();
+      await safePlay(soundCorrect, 880);
+      setTimeout(() => safePlay(soundWrong, 220), 350);
+    });
   </script>
 </body>
 </html>
